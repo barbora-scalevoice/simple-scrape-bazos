@@ -1,6 +1,7 @@
 import requests
 from bs4 import BeautifulSoup
 import json
+from pathlib import Path
 import re
 import pandas as pd
 import argparse
@@ -41,12 +42,12 @@ def get_description_parts(soup):
 
 
 def get_mileage(soup):
-    popis = soup.find('div', class_='popis').text
+    popis = soup.find('div', class_='popis')
     pattern = r'\d+(?: \d+)*(?: tis)? km'
-    match = re.search(pattern, popis)
 
-    if match:
-        return match.group()
+    if popis:
+        match = re.search(pattern, popis.text) if popis else None
+        return match.group() if match else ''
     else:
         return ''
 
@@ -102,6 +103,18 @@ def parse_json(base_url, n, count):
             json_list.append(result_json)
     return json_list
 
+def postprocess_json(json_list):
+    df = pd.DataFrame(json_list)
+    vc = df['id'].value_counts()
+    vc_unique = vc[vc.values == 1]
+    df = df[df['id'].isin(vc_unique.index)]
+    return df
+
+def save_json(line: pd.Series):
+    save_dir = Path('data')
+    save_dir.mkdir(exist_ok=True)
+    with open(save_dir.joinpath(line['id'] + '.json'), 'w') as f:
+        json.dump(line.to_dict(), f, indent=4, ensure_ascii=False)
 
 def main():
     parser = argparse.ArgumentParser(__doc__)
@@ -109,14 +122,13 @@ def main():
     parser.add_argument("-c", "--count", type=str, default=3)
     args = parser.parse_args()
     n = 100
-    count = args.n
+    count = args.count
+
     json_list = parse_json(args.base_url, n, count)
-    df = pd.DataFrame(json_list)
-    vc = df['id'].value_counts()
-    vc_unique = vc[vc.values == 1]
-    df = df[df['id'].isin(vc_unique.index)]
-    print(df)
+    df = postprocess_json(json_list)
+
     for i, line in df.iterrows():
+        save_json(line)
         print(line.to_dict())
 
 
